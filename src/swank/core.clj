@@ -120,9 +120,33 @@
     (doall coll)
     coll))
 
+
+
+;; If there are any problems with swank-clojure look here first.
+;; This is my first experience writing clojure, so I've probably introduced bugs.
+;;
+;; The use of write-to-connection here needs to be looked into.  It would be better
+;; to use send-to-emacs, but I was unable to get it to work.  -wilig
+(defn request-string-from-emacs
+  "Create a proxy to imitate an input stream, if someone tries to read something
+   send a request to emacs."
+  ([]
+     (let [stream
+	   (proxy [java.io.BufferedReader] [(new java.io.StringReader "")]
+	     (readLine []
+		       ;; Send the slime command :read-string to emacs
+		       (write-to-connection *current-connection* `(:read-string 1 ~(thread-map-id (current-thread))))
+		       ;; Call mailbox receive to block the current thread until a message is sent to our box.
+		       ;; The return string should come in as an :emacs-return-string message (see dispatch-event) 
+		       (mb/receive (thread-map-id (current-thread)))))]
+    stream)))
+
+
+;; Added binding for *in* to send stdin read requests to emacs -wilig
 (defn eval-for-emacs [form buffer-package id]
   (try
-   (binding [*current-package* buffer-package]
+   (binding [*current-package* buffer-package
+	     *in* (request-string-from-emacs)]
      (if-let [f (slime-fn (first form))]
        (let [form (cons f (rest form))
              result (doall-seq (eval-in-emacs-package form))]
@@ -232,6 +256,11 @@
                   :eval-no-wait :background-message :inspect)
          (binding [*print-level* nil, *print-length* nil]
            (write-to-connection conn ev))
+
+	 ;; Returned string from emacs  -wilig
+	 (= action :emacs-return-string)
+         (let [[tag thread string] args]
+	   (mb/send thread string))
 
          (= action :write-string)
          (write-to-connection conn ev)

@@ -48,7 +48,8 @@
 
 (defn- make-output-redirection
   ([conn]
-     (call-on-flush-stream
+     ;; Changed to call-on-write-stream  -wilig
+     (call-on-write-stream
       #(with-connection conn
          (send-to-emacs `(:write-string ~%)))))
   {:tag java.io.StringWriter})

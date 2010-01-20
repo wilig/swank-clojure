@@ -131,14 +131,18 @@
   "Create a proxy to imitate an input stream, if someone tries to read something
    send a request to emacs."
   ([]
-     (let [stream
-	   (proxy [java.io.BufferedReader] [(new java.io.StringReader "")]
-	     (readLine []
-		       ;; Send the slime command :read-string to emacs
-		       (write-to-connection *current-connection* `(:read-string 1 ~(thread-map-id (current-thread))))
-		       ;; Call mailbox receive to block the current thread until a message is sent to our box.
-		       ;; The return string should come in as an :emacs-return-string message (see dispatch-event) 
-		       (mb/receive (thread-map-id (current-thread)))))]
+     (let [in-from-emacs (new java.io.PipedWriter)
+	   stream (proxy [clojure.lang.LineNumberingPushbackReader] [(new java.io.PipedReader in-from-emacs)]
+		    (read []
+			  ;; Send the slime command :read-string to emacs
+			  (write-to-connection *current-connection* `(:read-string 1 ~(thread-map-id (current-thread))))
+			  ;; Call mailbox receive to block the current thread until a message is sent to our box.
+			  ;; The return string should come in as an :emacs-return-string message (see dispatch-event)
+			  (let [emacs-string (mb/receive (thread-map-id (current-thread)))
+				writer (memfn write i)]
+			    (writer in-from-emacs emacs-string))
+			  (proxy-super read)))
+	   ]
     stream)))
 
 
